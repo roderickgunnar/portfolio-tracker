@@ -1,4 +1,4 @@
-const CACHE_NAME = 'portfolio-tracker-v3';
+const CACHE_NAME = 'portfolio-tracker-v4';
 const ASSETS = [
   './',
   './index.html',
