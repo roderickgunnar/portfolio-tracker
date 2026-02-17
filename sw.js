@@ -1,4 +1,4 @@
-const CACHE_NAME = 'portfolio-tracker-v2';
+const CACHE_NAME = 'portfolio-tracker-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -11,7 +11,6 @@ const ASSETS = [
   'https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js',
   'https://unpkg.com/recharts@2.12.7/umd/Recharts.js',
   'https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js',
-  'https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.js',
 ];
 
 self.addEventListener('install', (event) => {
