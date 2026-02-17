@@ -24,6 +24,7 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
     select:focus { outline: 2px solid #6366f1; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
     /* Mobile responsive */
     @media (max-width: 768px) {
@@ -58,8 +59,178 @@
   <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 
   <script type="text/babel">
-    const { useState, useMemo } = React;
+    const { useState, useMemo, useEffect, useCallback, useRef } = React;
     const { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } = Recharts;
+
+    // ─── Finnhub API ──────────────────────────────────────────────────────────────
+    const FINNHUB_KEY = "d568c8hr01qu3qo92efgd568c8hr01qu3qo92eg0";
+    const fetchPrice = async (symbol) => {
+      // Clean symbol: remove " (Indiv)" suffixes, skip non-stock symbols
+      const clean = symbol.replace(/\s*\(.*?\)\s*$/, "");
+      if (clean.startsWith("Target ") || clean === "Cash") return null;
+      try {
+        const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(clean)}&token=${FINNHUB_KEY}`);
+        const data = await res.json();
+        if (data && data.c > 0) return { symbol: clean, price: data.c };
+      } catch (e) { console.warn("Finnhub error for", clean, e); }
+      return null;
+    };
+
+    const fetchAllPrices = async (symbols) => {
+      const unique = [...new Set(symbols.map(s => s.replace(/\s*\(.*?\)\s*$/, "")).filter(s => !s.startsWith("Target ") && s !== "Cash"))];
+      const prices = {};
+      // Finnhub free tier: 60 calls/min, fetch sequentially with small delay
+      for (const sym of unique) {
+        const result = await fetchPrice(sym);
+        if (result) prices[result.symbol] = result.price;
+        await new Promise(r => setTimeout(r, 250)); // rate limit
+      }
+      return prices;
+    };
+
+    // ─── CSV Parsers ──────────────────────────────────────────────────────────────
+    const SCHWAB_ACCOUNT_MAP = {
+      "XXX210": "Schwab Individual",
+      "XXX236": "Schwab Rollover IRA",
+      "XXX037": "Schwab PCRA Trust",
+      "XXX157": "Schwab PCRA Trust 2",
+    };
+
+    const parseCSVLine = (line) => {
+      const result = [];
+      let current = "";
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') { inQuotes = !inQuotes; }
+        else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ""; }
+        else { current += ch; }
+      }
+      result.push(current.trim());
+      return result;
+    };
+
+    const parseDollar = (s) => {
+      if (!s) return 0;
+      const clean = s.replace(/[$,]/g, "");
+      return parseFloat(clean) || 0;
+    };
+
+    const categorizeSchwabAction = (action) => {
+      const a = action.toLowerCase();
+      if (a === "buy") return { category: "BUY", action: "Buy" };
+      if (a === "sell") return { category: "SELL", action: "Sell" };
+      if (a === "sell to open") return { category: "OPTIONS", action: "Sell to Open" };
+      if (a === "buy to close") return { category: "OPTIONS", action: "Buy to Close" };
+      if (a === "sell to close") return { category: "OPTIONS", action: "Sell to Close" };
+      if (a === "buy to open") return { category: "OPTIONS", action: "Buy to Open" };
+      if (a === "assigned" || a === "expired") return { category: "OPTIONS", action };
+      if (a.includes("dividend") || a.includes("div")) return { category: "DIVIDEND", action: "Dividend" };
+      if (a.includes("transfer") || a.includes("journal")) return { category: "CASH_MGMT", action: "Transfer" };
+      if (a.includes("contribution")) return { category: "CONTRIBUTION", action: "Contribution" };
+      return { category: "OTHER", action };
+    };
+
+    const parseSchwabCSV = (text, filename) => {
+      // Detect account from filename pattern: _XXX###_
+      let accountName = "Unknown Schwab";
+      const m = filename.match(/_(XXX\d+)_/);
+      if (m && SCHWAB_ACCOUNT_MAP[m[1]]) accountName = SCHWAB_ACCOUNT_MAP[m[1]];
+
+      const lines = text.split("\n").filter(l => l.trim());
+      if (lines.length < 2) return [];
+
+      // Skip header (first line with "Date","Action",...)
+      const transactions = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCSVLine(lines[i]);
+        if (cols.length < 8) continue;
+        const [dateRaw, actionRaw, symbol, , , , , amountRaw] = cols;
+        if (!dateRaw || dateRaw.startsWith("Transactions Total")) continue;
+
+        // Parse date: "MM/DD/YYYY" or "MM/DD/YYYY as of MM/DD/YYYY"
+        const datePart = dateRaw.split(" as of ")[0].trim();
+        const [mm, dd, yyyy] = datePart.split("/");
+        if (!mm || !dd || !yyyy) continue;
+        const isoDate = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+
+        const { category, action } = categorizeSchwabAction(actionRaw);
+        const amount = parseDollar(amountRaw);
+
+        // Clean symbol for display
+        const cleanSymbol = symbol || "Cash";
+
+        transactions.push({ date: isoDate, account: accountName, category, action, symbol: cleanSymbol, amount });
+      }
+      return transactions;
+    };
+
+    const parseVanguardCSV = (text) => {
+      const lines = text.split("\n");
+      const transactions = [];
+      let inTransactionSection = false;
+      let txHeaderFound = false;
+
+      // Vanguard account numbers to names
+      const vanguardAcctMap = {
+        "67797015": "Vanguard Brokerage",
+        "88487389": "Vanguard Cash",
+        "54832192": "Vanguard Cash 2",
+        "48778142": "Vanguard Cash 3",
+      };
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        // Detect transaction section header
+        if (line.startsWith("Account Number,Trade Date,Settlement Date")) {
+          inTransactionSection = true;
+          txHeaderFound = true;
+          continue;
+        }
+
+        if (!inTransactionSection) continue;
+
+        const cols = parseCSVLine(line);
+        if (cols.length < 14) continue;
+
+        const [acctNum, tradeDate, , txType, , , symbol, , , amount, , , ,] = cols;
+        if (!tradeDate || tradeDate === "Trade Date") continue;
+
+        const accountName = vanguardAcctMap[acctNum] || `Vanguard ${acctNum}`;
+        const isoDate = tradeDate; // already YYYY-MM-DD format
+        const amountVal = parseFloat(amount) || 0;
+
+        let category = "OTHER", action = txType;
+        const tt = txType.toLowerCase();
+        if (tt === "buy") { category = "BUY"; action = "Buy"; }
+        else if (tt === "sell") { category = "SELL"; action = "Sell"; }
+        else if (tt.includes("dividend")) { category = "DIVIDEND"; action = "Dividend"; }
+        else if (tt.includes("contribution")) { category = "CONTRIBUTION"; action = "Contribution"; }
+        else if (tt.includes("sweep") || tt.includes("transfer")) { category = "CASH_MGMT"; action = "Transfer"; }
+        else if (tt === "reinvestment") { category = "DIVIDEND"; action = "Reinvestment"; }
+
+        transactions.push({ date: isoDate, account: accountName, category, action, symbol: symbol || "Cash", amount: amountVal });
+      }
+      return transactions;
+    };
+
+    const detectAndParseCSV = (text, filename) => {
+      const lower = filename.toLowerCase();
+      if (lower.includes("vanguard")) return parseVanguardCSV(text);
+      // Default to Schwab format (has XXX pattern or "Date","Action" header)
+      return parseSchwabCSV(text, filename);
+    };
+
+    // ─── localStorage helpers ─────────────────────────────────────────────────────
+    const STORAGE_KEY = "portfolio_uploaded_transactions";
+    const loadUploadedTransactions = () => {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
+    };
+    const saveUploadedTransactions = (txs) => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(txs));
+    };
 
     // Simple SVG icon components (replacing lucide-react)
     const Icon = ({ d, size = 24, color = "currentColor" }) => (
@@ -359,12 +530,128 @@
       const [selectedMonth, setSelectedMonth] = useState("All");
       const [selectedCategory, setSelectedCategory] = useState("All");
       const [activeTab, setActiveTab] = useState("holdings");
+      const [priceStatus, setPriceStatus] = useState("idle"); // idle | loading | done | error
+      const [livePrices, setLivePrices] = useState({});
+      const [uploadedTx, setUploadedTx] = useState(() => loadUploadedTransactions());
+      const [uploadMsg, setUploadMsg] = useState("");
+      const fileInputRef = useRef(null);
 
-      const accountData = ACCOUNTS[selectedAccount];
-      const holdings = HOLDINGS_BY_ACCOUNT[selectedAccount] || [];
+      // ─── Finnhub: fetch live prices on mount ────────────────────────────────────
+      useEffect(() => {
+        const allSymbols = (HOLDINGS_BY_ACCOUNT["All Accounts"] || []).map(h => h.symbol);
+        if (allSymbols.length === 0) return;
+        setPriceStatus("loading");
+        fetchAllPrices(allSymbols).then(prices => {
+          if (Object.keys(prices).length > 0) {
+            setLivePrices(prices);
+            setPriceStatus("done");
+          } else {
+            setPriceStatus("error");
+          }
+        }).catch(() => setPriceStatus("error"));
+      }, []);
+
+      // ─── Apply live prices to holdings ──────────────────────────────────────────
+      const updatedHoldingsByAccount = useMemo(() => {
+        if (Object.keys(livePrices).length === 0) return HOLDINGS_BY_ACCOUNT;
+        const result = {};
+        for (const [acct, holdingsList] of Object.entries(HOLDINGS_BY_ACCOUNT)) {
+          result[acct] = holdingsList.map(h => {
+            const cleanSym = h.symbol.replace(/\s*\(.*?\)\s*$/, "");
+            const newPrice = livePrices[cleanSym];
+            if (newPrice && newPrice !== h.price) {
+              const marketValue = +(h.shares * newPrice).toFixed(2);
+              const unrealizedGL = +(marketValue - h.costBasis).toFixed(2);
+              const unrealizedPct = h.costBasis !== 0 ? +(unrealizedGL / h.costBasis).toFixed(4) : 0;
+              return { ...h, price: newPrice, marketValue, unrealizedGL, unrealizedPct };
+            }
+            return h;
+          });
+        }
+        return result;
+      }, [livePrices]);
+
+      // ─── Recalculate account totals from updated holdings ───────────────────────
+      const updatedAccounts = useMemo(() => {
+        if (Object.keys(livePrices).length === 0) return ACCOUNTS;
+        const result = { ...ACCOUNTS };
+        for (const [acct, holdingsList] of Object.entries(updatedHoldingsByAccount)) {
+          if (acct === "All Accounts") continue;
+          const orig = ACCOUNTS[acct];
+          if (!orig) continue;
+          const totalValue = holdingsList.reduce((s, h) => s + h.marketValue, 0);
+          const unrealizedGL = holdingsList.reduce((s, h) => s + h.unrealizedGL, 0);
+          const costBasis = holdingsList.reduce((s, h) => s + h.costBasis, 0);
+          const unrealizedPct = costBasis !== 0 ? unrealizedGL / costBasis : 0;
+          result[acct] = { ...orig, totalValue: +totalValue.toFixed(2), unrealizedGL: +unrealizedGL.toFixed(2), unrealizedPct: +unrealizedPct.toFixed(4) };
+        }
+        // Recalculate "All Accounts"
+        const allAcct = { ...ACCOUNTS["All Accounts"] };
+        let tv = 0, ugl = 0, cb = 0;
+        for (const [acct, data] of Object.entries(result)) {
+          if (acct === "All Accounts") continue;
+          tv += data.totalValue; ugl += data.unrealizedGL; cb += data.costBasis || ACCOUNTS[acct].costBasis;
+        }
+        allAcct.totalValue = +tv.toFixed(2);
+        allAcct.unrealizedGL = +ugl.toFixed(2);
+        allAcct.unrealizedPct = cb !== 0 ? +(ugl / cb).toFixed(4) : 0;
+        result["All Accounts"] = allAcct;
+        return result;
+      }, [livePrices, updatedHoldingsByAccount]);
+
+      // ─── CSV Upload handler ─────────────────────────────────────────────────────
+      const handleFileUpload = useCallback((e) => {
+        const files = Array.from(e.target.files);
+        if (!files.length) return;
+        setUploadMsg("Processing...");
+        let allNew = [];
+        let processed = 0;
+
+        files.forEach(file => {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const text = ev.target.result;
+            const txs = detectAndParseCSV(text, file.name);
+            allNew = allNew.concat(txs);
+            processed++;
+            if (processed === files.length) {
+              // Deduplicate: merge with existing uploaded transactions
+              const existing = loadUploadedTransactions();
+              const combined = [...existing];
+              const existingKeys = new Set(existing.map(t => `${t.date}|${t.account}|${t.action}|${t.symbol}|${t.amount}`));
+              let added = 0;
+              allNew.forEach(t => {
+                const key = `${t.date}|${t.account}|${t.action}|${t.symbol}|${t.amount}`;
+                if (!existingKeys.has(key)) { combined.push(t); existingKeys.add(key); added++; }
+              });
+              saveUploadedTransactions(combined);
+              setUploadedTx(combined);
+              setUploadMsg(`Imported ${added} new transactions from ${files.length} file(s).`);
+              setTimeout(() => setUploadMsg(""), 5000);
+            }
+          };
+          reader.readAsText(file);
+        });
+        // Reset input so same file can be re-uploaded
+        e.target.value = "";
+      }, []);
+
+      const accountData = updatedAccounts[selectedAccount];
+      const holdings = updatedHoldingsByAccount[selectedAccount] || [];
+
+      // Merge hardcoded + uploaded transactions
+      const allTransactions = useMemo(() => {
+        const hardcodedKeys = new Set(TRANSACTIONS.map(t => `${t.date}|${t.account}|${t.action}|${t.symbol}|${t.amount}`));
+        const merged = [...TRANSACTIONS];
+        uploadedTx.forEach(t => {
+          const key = `${t.date}|${t.account}|${t.action}|${t.symbol}|${t.amount}`;
+          if (!hardcodedKeys.has(key)) merged.push(t);
+        });
+        return merged.sort((a, b) => b.date.localeCompare(a.date));
+      }, [uploadedTx]);
 
       const filteredTx = useMemo(() => {
-        return TRANSACTIONS.filter((t) => {
+        return allTransactions.filter((t) => {
           if (selectedAccount !== "All Accounts" && t.account !== selectedAccount) return false;
           if (selectedYear !== "All" && !t.date.startsWith(selectedYear)) return false;
           if (selectedMonth !== "All") {
@@ -374,7 +661,7 @@
           if (selectedCategory !== "All" && t.category !== selectedCategory) return false;
           return true;
         });
-      }, [selectedAccount, selectedYear, selectedMonth, selectedCategory]);
+      }, [allTransactions, selectedAccount, selectedYear, selectedMonth, selectedCategory]);
 
       const filteredOptions = useMemo(() => {
         return OPTIONS_ACTIVITY.filter((o) => {
@@ -388,11 +675,11 @@
       }, [holdings]);
 
       const accountBarData = useMemo(() => {
-        return Object.entries(ACCOUNTS).filter(([k]) => k !== "All Accounts").map(([name, d]) => ({
+        return Object.entries(updatedAccounts).filter(([k]) => k !== "All Accounts").map(([name, d]) => ({
           name: name.replace("Schwab ", "S. ").replace("Vanguard ", "V. "),
           fullName: name, value: d.totalValue, unrealized: d.unrealizedGL, realized: d.totalRealizedGL,
         }));
-      }, []);
+      }, [updatedAccounts]);
 
       const optionsByMonth = useMemo(() => {
         const map = {};
@@ -483,10 +770,39 @@
               <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: "#f1f5f9", display: "flex", alignItems: "center", gap: 10 }}>
                 <Activity size={28} color="#818cf8" /> Portfolio Tracker
               </h1>
-              <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Last updated: Feb 12, 2026</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
+                {priceStatus === "loading" && <><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#fbbf24", animation: "pulse 1s infinite" }} /> Fetching live prices...</>}
+                {priceStatus === "done" && <><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#34d399" }} /> Prices updated live</>}
+                {priceStatus === "error" && <><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#f87171" }} /> Price update failed - showing cached</>}
+                {priceStatus === "idle" && <>Data sourced from Schwab & Vanguard</>}
+              </div>
             </div>
-            <Dropdown label="Account" value={selectedAccount} onChange={setSelectedAccount} options={Object.keys(ACCOUNTS)} />
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <button onClick={() => fileInputRef.current?.click()} style={{
+                background: "linear-gradient(135deg, #6366f1, #818cf8)", color: "#fff",
+                border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13,
+                fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Upload CSV
+              </button>
+              <input ref={fileInputRef} type="file" accept=".csv" multiple onChange={handleFileUpload} style={{ display: "none" }} />
+              <Dropdown label="Account" value={selectedAccount} onChange={setSelectedAccount} options={Object.keys(updatedAccounts)} />
+            </div>
           </div>
+
+          {/* Upload Message */}
+          {uploadMsg && (
+            <div style={{
+              background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)",
+              borderRadius: 10, padding: "10px 16px", marginBottom: 16,
+              fontSize: 13, color: "#818cf8", display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              {uploadMsg}
+            </div>
+          )}
 
           {/* Stat Cards */}
           <div className="stat-cards" style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
@@ -646,7 +962,8 @@
 
           {/* Footer */}
           <div style={{ textAlign: "center", marginTop: 24, fontSize: 11, color: "#334155" }}>
-            Data sourced from Schwab & Vanguard · For informational purposes only
+            Data sourced from Schwab & Vanguard · Prices via Finnhub · For informational purposes only
+            {uploadedTx.length > 0 && <> · {uploadedTx.length} uploaded transactions</>}
           </div>
         </div>
       );
