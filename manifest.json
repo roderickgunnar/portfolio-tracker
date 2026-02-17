@@ -4,8 +4,8 @@
   "description": "Track your investment portfolio across Schwab & Vanguard accounts",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0a0e27",
-  "theme_color": "#0a0e27",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "orientation": "any",
   "icons": [
     {

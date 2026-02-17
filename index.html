@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="theme-color" content="#0a0e27" />
+  <meta name="theme-color" content="#000000" />
   <title>Portfolio Tracker</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icon-192.png" />
@@ -14,7 +14,7 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background: #0a0e27;
+      background: #000000;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
@@ -421,7 +421,7 @@
       const Icon = icon;
       return (
         <div style={{
-          background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)",
+          background: "linear-gradient(135deg, #111 0%, #0a0a0a 100%)",
           borderRadius: 16, padding: "20px 24px",
           border: "1px solid rgba(99,102,241,0.2)",
           flex: 1, minWidth: 180,
@@ -492,7 +492,7 @@
                     style={{
                       textAlign: c.align || "left", padding: "10px 12px",
                       color: sortCol === c.key ? "#818cf8" : "#64748b",
-                      cursor: "pointer", borderBottom: "1px solid #1e293b",
+                      cursor: "pointer", borderBottom: "1px solid #1a1a1a",
                       fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5,
                       whiteSpace: "nowrap", userSelect: "none",
                     }}>
@@ -503,7 +503,7 @@
             </thead>
             <tbody>
               {sorted.map((row, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #0f172a" }}>
+                <tr key={i} style={{ borderBottom: "1px solid #111" }}>
                   {columns.map((c) => (
                     <td key={c.key} style={{
                       padding: "10px 12px", textAlign: c.align || "left",
@@ -534,7 +534,16 @@
       const [livePrices, setLivePrices] = useState({});
       const [uploadedTx, setUploadedTx] = useState(() => loadUploadedTransactions());
       const [uploadMsg, setUploadMsg] = useState("");
+      const [hideAmounts, setHideAmounts] = useState(() => {
+        try { return localStorage.getItem("portfolio_hide_amounts") === "true"; } catch { return false; }
+      });
       const fileInputRef = useRef(null);
+
+      // Persist hide toggle
+      useEffect(() => { try { localStorage.setItem("portfolio_hide_amounts", hideAmounts); } catch {} }, [hideAmounts]);
+
+      // Mask helper: replaces dollar amounts with dots
+      const mask = (val) => hideAmounts ? "••••••" : val;
 
       // ─── Finnhub: fetch live prices on mount ────────────────────────────────────
       useEffect(() => {
@@ -704,13 +713,13 @@
 
       const holdingsColumns = [
         { key: "symbol", label: "Symbol", bold: true, color: () => "#e2e8f0" },
-        { key: "shares", label: "Shares", align: "right", render: (v) => v.toFixed(2) },
-        { key: "avgCost", label: "Avg Cost", align: "right", render: (v) => fmt(v) },
+        { key: "shares", label: "Shares", align: "right", render: (v) => hideAmounts ? "••••" : v.toFixed(2) },
+        { key: "avgCost", label: "Avg Cost", align: "right", render: (v) => mask(fmt(v)) },
         { key: "price", label: "Price", align: "right", render: (v) => fmt(v) },
-        { key: "marketValue", label: "Mkt Value", align: "right", render: (v) => fmt(v) },
-        { key: "unrealizedGL", label: "Unrealized", align: "right", render: (v) => fmt(v), color: (v) => v >= 0 ? "#34d399" : "#f87171" },
+        { key: "marketValue", label: "Mkt Value", align: "right", render: (v) => mask(fmt(v)) },
+        { key: "unrealizedGL", label: "Unrealized", align: "right", render: (v) => mask(fmt(v)), color: (v) => hideAmounts ? "#64748b" : v >= 0 ? "#34d399" : "#f87171" },
         { key: "unrealizedPct", label: "Unreal %", align: "right", render: (v) => fmtPct(v), color: (v) => v >= 0 ? "#34d399" : "#f87171" },
-        { key: "realizedGL", label: "Realized", align: "right", render: (v) => fmt(v), color: (v) => v > 0 ? "#34d399" : v < 0 ? "#f87171" : "#64748b" },
+        { key: "realizedGL", label: "Realized", align: "right", render: (v) => mask(fmt(v)), color: (v) => hideAmounts ? "#64748b" : v > 0 ? "#34d399" : v < 0 ? "#f87171" : "#64748b" },
       ];
 
       const txColumns = [
@@ -718,7 +727,7 @@
         { key: "account", label: "Account" },
         { key: "action", label: "Action", color: (v) => v === "Buy" ? "#818cf8" : v === "Sell" ? "#fbbf24" : v.includes("Open") ? "#a78bfa" : "#cbd5e1" },
         { key: "symbol", label: "Symbol", bold: true, color: () => "#e2e8f0" },
-        { key: "amount", label: "Amount", align: "right", render: (v) => fmt(v), color: (v) => v >= 0 ? "#34d399" : "#f87171" },
+        { key: "amount", label: "Amount", align: "right", render: (v) => mask(fmt(v)), color: (v) => hideAmounts ? "#64748b" : v >= 0 ? "#34d399" : "#f87171" },
       ];
 
       const optionsColumns = [
@@ -733,9 +742,9 @@
             }}>{v}</span>
           ),
         },
-        { key: "premium", label: "Premium", align: "right", render: (v) => fmt(v), color: () => "#34d399" },
-        { key: "closeCost", label: "Close Cost", align: "right", render: (v) => v > 0 ? fmt(v) : "\u2014", color: (v) => v > 0 ? "#f87171" : "#64748b" },
-        { key: "netPL", label: "Net P/L", align: "right", render: (v) => fmt(v), color: (v) => v >= 0 ? "#34d399" : "#f87171" },
+        { key: "premium", label: "Premium", align: "right", render: (v) => mask(fmt(v)), color: () => hideAmounts ? "#64748b" : "#34d399" },
+        { key: "closeCost", label: "Close Cost", align: "right", render: (v) => hideAmounts ? "••••••" : v > 0 ? fmt(v) : "\u2014", color: (v) => hideAmounts ? "#64748b" : v > 0 ? "#f87171" : "#64748b" },
+        { key: "netPL", label: "Net P/L", align: "right", render: (v) => mask(fmt(v)), color: (v) => hideAmounts ? "#64748b" : v >= 0 ? "#34d399" : "#f87171" },
         { key: "account", label: "Account" },
       ];
 
@@ -751,7 +760,7 @@
         return (
           <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
             <div style={{ color: "#e2e8f0", fontWeight: 600 }}>{d.name}</div>
-            <div style={{ color: "#818cf8" }}>{fmt(d.value)}</div>
+            <div style={{ color: "#818cf8" }}>{mask(fmt(d.value))}</div>
             <div style={{ color: "#64748b" }}>{((d.value / accountData.totalValue) * 100).toFixed(1)}% of portfolio</div>
           </div>
         );
@@ -759,7 +768,7 @@
 
       return (
         <div className="main-wrap" style={{
-          background: "linear-gradient(180deg, #0a0e27 0%, #0f172a 30%, #0c1220 100%)",
+          background: "#000000",
           minHeight: "100vh", color: "#cbd5e1",
           fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
           padding: "24px 32px",
@@ -778,6 +787,23 @@
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              {/* Hide Amounts Toggle */}
+              <div onClick={() => setHideAmounts(h => !h)} style={{
+                display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none",
+                background: "rgba(255,255,255,0.05)", borderRadius: 10, padding: "8px 14px",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={hideAmounts ? "#f87171" : "#64748b"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  {hideAmounts ? (
+                    <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
+                  ) : (
+                    <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+                  )}
+                </svg>
+                <span style={{ fontSize: 12, color: hideAmounts ? "#f87171" : "#94a3b8", fontWeight: 500 }}>
+                  {hideAmounts ? "Hidden" : "Visible"}
+                </span>
+              </div>
               <button onClick={() => fileInputRef.current?.click()} style={{
                 background: "linear-gradient(135deg, #6366f1, #818cf8)", color: "#fff",
                 border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13,
@@ -806,92 +832,109 @@
 
           {/* Stat Cards */}
           <div className="stat-cards" style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
-            <StatCard label="Total Value" value={fmt(accountData.totalValue)} icon={DollarSign} />
-            <StatCard label="Unrealized G/L" value={fmt(accountData.unrealizedGL)} sub={fmtPct(accountData.unrealizedPct)} positive={accountData.unrealizedGL >= 0} icon={TrendingUp} />
-            <StatCard label="Realized G/L" value={fmt(accountData.totalRealizedGL)} sub={`Short-term: ${fmt(accountData.realizedSTGL)}`} positive={accountData.totalRealizedGL >= 0} icon={BarChart3} />
-            <StatCard label="Total Income" value={fmt(totalIncome)} sub={`Options: ${fmt(accountData.netOptionsPremium)} \u00B7 Div: ${fmt(accountData.totalDividends)}`} positive={totalIncome >= 0} icon={Activity} />
+            <StatCard label="Total Value" value={mask(fmt(accountData.totalValue))} icon={DollarSign} />
+            <StatCard label="Unrealized G/L" value={mask(fmt(accountData.unrealizedGL))} sub={fmtPct(accountData.unrealizedPct)} positive={accountData.unrealizedGL >= 0} icon={TrendingUp} />
+            <StatCard label="Realized G/L" value={mask(fmt(accountData.totalRealizedGL))} sub={hideAmounts ? "••••••" : `Short-term: ${fmt(accountData.realizedSTGL)}`} positive={accountData.totalRealizedGL >= 0} icon={BarChart3} />
+            <StatCard label="Total Income" value={mask(fmt(totalIncome))} sub={hideAmounts ? "••••••" : `Options: ${fmt(accountData.netOptionsPremium)} \u00B7 Div: ${fmt(accountData.totalDividends)}`} positive={totalIncome >= 0} icon={Activity} />
           </div>
 
-          {/* Charts */}
-          <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
-            {/* Asset Allocation */}
-            <div style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)", borderRadius: 16, padding: 20, border: "1px solid rgba(99,102,241,0.15)" }}>
-              <h3 style={{ margin: "0 0 4px", fontSize: 14, color: "#94a3b8", fontWeight: 600 }}>Asset Allocation</h3>
-              <div className="pie-inner" style={{ display: "flex", alignItems: "center" }}>
-                <ResponsiveContainer width="55%" height={220}>
+          {/* Charts - 60% of viewport */}
+          <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24, minHeight: "60vh" }}>
+            {/* Asset Allocation - Large */}
+            <div style={{ background: "linear-gradient(135deg, #111 0%, #0a0a0a 100%)", borderRadius: 16, padding: 24, border: "1px solid rgba(99,102,241,0.15)", display: "flex", flexDirection: "column" }}>
+              <h3 style={{ margin: "0 0 12px", fontSize: 16, color: "#94a3b8", fontWeight: 600 }}>Asset Allocation</h3>
+              <div className="pie-inner" style={{ display: "flex", alignItems: "center", flex: 1 }}>
+                <ResponsiveContainer width="55%" height={340}>
                   <PieChart>
-                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value" strokeWidth={2} stroke="#0f172a">
+                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={80} outerRadius={130} dataKey="value" strokeWidth={2} stroke="#000">
                       {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                     </Pie>
                     <Tooltip content={customTooltip} />
                   </PieChart>
                 </ResponsiveContainer>
-                <div style={{ flex: 1, fontSize: 11, lineHeight: 1.8 }}>
-                  {pieData.slice(0, 8).map((d, i) => (
-                    <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                <div style={{ flex: 1, fontSize: 12, lineHeight: 2.2 }}>
+                  {pieData.map((d, i) => (
+                    <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: 3, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
                       <span style={{ color: "#94a3b8" }}>{d.name}</span>
                       <span style={{ marginLeft: "auto", color: "#e2e8f0", fontWeight: 500 }}>{((d.value / accountData.totalValue) * 100).toFixed(1)}%</span>
                     </div>
                   ))}
-                  {pieData.length > 8 && <div style={{ color: "#64748b", paddingLeft: 14 }}>+{pieData.length - 8} more</div>}
                 </div>
               </div>
             </div>
 
-            {/* Account Values */}
-            <div style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)", borderRadius: 16, padding: 20, border: "1px solid rgba(99,102,241,0.15)" }}>
-              <h3 style={{ margin: "0 0 12px", fontSize: 14, color: "#94a3b8", fontWeight: 600 }}>Account Values</h3>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={accountBarData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 12 }} formatter={(v) => [fmt(v), ""]} labelFormatter={(l, payload) => payload?.[0]?.payload?.fullName || l} />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+            {/* Account Values - Large */}
+            <div style={{ background: "linear-gradient(135deg, #111 0%, #0a0a0a 100%)", borderRadius: 16, padding: 24, border: "1px solid rgba(99,102,241,0.15)", display: "flex", flexDirection: "column" }}>
+              <h3 style={{ margin: "0 0 16px", fontSize: 16, color: "#94a3b8", fontWeight: 600 }}>Account Values</h3>
+              <ResponsiveContainer width="100%" height={340}>
+                <BarChart data={accountBarData} margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1a1a1a" />
+                  <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => hideAmounts ? "••" : `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 12 }} formatter={(v) => [mask(fmt(v)), ""]} labelFormatter={(l, payload) => payload?.[0]?.payload?.fullName || l} />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                     {accountBarData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
-            {/* Income Summary */}
-            <div style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)", borderRadius: 16, padding: 20, border: "1px solid rgba(99,102,241,0.15)" }}>
-              <h3 style={{ margin: "0 0 4px", fontSize: 14, color: "#94a3b8", fontWeight: 600 }}>Income Summary</h3>
-              <div style={{ fontSize: 28, fontWeight: 700, color: totalIncome >= 0 ? "#34d399" : "#f87171", marginBottom: 16 }}>{fmt(totalIncome)}</div>
+            {/* Income Summary - Large */}
+            <div style={{ background: "linear-gradient(135deg, #111 0%, #0a0a0a 100%)", borderRadius: 16, padding: 24, border: "1px solid rgba(99,102,241,0.15)", display: "flex", flexDirection: "column" }}>
+              <h3 style={{ margin: "0 0 8px", fontSize: 16, color: "#94a3b8", fontWeight: 600 }}>Income Summary</h3>
+              <div style={{ fontSize: 32, fontWeight: 700, color: totalIncome >= 0 ? "#34d399" : "#f87171", marginBottom: 20 }}>{mask(fmt(totalIncome))}</div>
               {incomeData.map((d, i) => {
                 const pct = totalIncome > 0 ? (d.value / totalIncome) * 100 : 0;
                 const colors = ["#6366f1", "#a78bfa", "#22d3ee"];
                 return (
-                  <div key={d.name} style={{ marginBottom: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                  <div key={d.name} style={{ marginBottom: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
                       <span style={{ color: "#94a3b8" }}>{d.name}</span>
-                      <span style={{ color: "#e2e8f0", fontWeight: 500 }}>{fmt(d.value)}</span>
+                      <span style={{ color: "#e2e8f0", fontWeight: 500 }}>{mask(fmt(d.value))}</span>
                     </div>
-                    <div style={{ height: 6, background: "#0f172a", borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${Math.max(pct, 0)}%`, background: colors[i], borderRadius: 3, transition: "width 0.5s ease" }} />
+                    <div style={{ height: 10, background: "#111", borderRadius: 5, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${Math.max(pct, 0)}%`, background: colors[i], borderRadius: 5, transition: "width 0.5s ease" }} />
                     </div>
                   </div>
                 );
               })}
               {selectedAccount === "All Accounts" && (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Options P/L by Month</div>
-                  <ResponsiveContainer width="100%" height={80}>
+                <div style={{ marginTop: 20, flex: 1, display: "flex", flexDirection: "column" }}>
+                  <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>Options P/L by Month</div>
+                  <ResponsiveContainer width="100%" height={140}>
                     <BarChart data={optionsByMonth} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                      <XAxis dataKey="month" tick={{ fill: "#475569", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => v.split("-")[1] + "/" + v.split("-")[0].slice(2)} />
-                      <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 11 }} formatter={(v) => [fmt(v), ""]} />
-                      <Bar dataKey="profit" fill="#34d399" radius={[2, 2, 0, 0]} stackId="a" />
-                      <Bar dataKey="loss" fill="#f87171" radius={[0, 0, 2, 2]} stackId="a" />
+                      <XAxis dataKey="month" tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => v.split("-")[1] + "/" + v.split("-")[0].slice(2)} />
+                      <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 11 }} formatter={(v) => [mask(fmt(v)), ""]} />
+                      <Bar dataKey="profit" fill="#34d399" radius={[3, 3, 0, 0]} stackId="a" />
+                      <Bar dataKey="loss" fill="#f87171" radius={[0, 0, 3, 3]} stackId="a" />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               )}
             </div>
+
+            {/* Holdings Performance Bar Chart - New */}
+            <div style={{ background: "linear-gradient(135deg, #111 0%, #0a0a0a 100%)", borderRadius: 16, padding: 24, border: "1px solid rgba(99,102,241,0.15)", display: "flex", flexDirection: "column" }}>
+              <h3 style={{ margin: "0 0 16px", fontSize: 16, color: "#94a3b8", fontWeight: 600 }}>Holdings Performance (%)</h3>
+              <ResponsiveContainer width="100%" height={340}>
+                <BarChart data={holdings.map(h => ({ name: h.symbol, pct: +(h.unrealizedPct * 100).toFixed(2) })).sort((a, b) => b.pct - a.pct)} layout="vertical" margin={{ top: 5, right: 30, bottom: 5, left: 60 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1a1a1a" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
+                  <YAxis type="category" dataKey="name" tick={{ fill: "#e2e8f0", fontSize: 11 }} axisLine={false} tickLine={false} width={50} />
+                  <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 12 }} formatter={(v) => [`${v}%`, "Return"]} />
+                  <Bar dataKey="pct" radius={[0, 4, 4, 0]}>
+                    {holdings.map(h => h.unrealizedPct * 100).sort((a, b) => b - a).map((v, i) => (
+                      <Cell key={i} fill={v >= 0 ? "#34d399" : "#f87171"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           {/* Tab Navigation */}
-          <div className="tab-nav" style={{ display: "flex", alignItems: "center", gap: 24, marginBottom: 16, borderBottom: "1px solid #1e293b", paddingBottom: 0, flexWrap: "wrap" }}>
+          <div className="tab-nav" style={{ display: "flex", alignItems: "center", gap: 24, marginBottom: 16, borderBottom: "1px solid #1a1a1a", paddingBottom: 0, flexWrap: "wrap" }}>
             {tabs.map((t) => (
               <button key={t.id} onClick={() => setActiveTab(t.id)}
                 style={{
@@ -920,7 +963,7 @@
 
           {/* Table Content */}
           <div style={{
-            background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)",
+            background: "linear-gradient(135deg, #111 0%, #0a0a0a 100%)",
             borderRadius: 16, padding: 20, border: "1px solid rgba(99,102,241,0.15)", minHeight: 300,
           }}>
             {activeTab === "holdings" && (
@@ -928,8 +971,8 @@
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
                   <div style={{ fontSize: 13, color: "#64748b" }}>{holdings.length} positions · Click headers to sort</div>
                   <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                    Total: <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{fmt(accountData.totalValue)}</span>
-                    {" \u00B7 "}Cost: <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{fmt(accountData.costBasis)}</span>
+                    Total: <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{mask(fmt(accountData.totalValue))}</span>
+                    {" \u00B7 "}Cost: <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{mask(fmt(accountData.costBasis))}</span>
                   </div>
                 </div>
                 <SortableTable columns={holdingsColumns} data={holdings} defaultSort="marketValue" />
@@ -950,8 +993,8 @@
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
                   <div style={{ fontSize: 13, color: "#64748b" }}>{filteredOptions.length} contracts</div>
                   <div style={{ fontSize: 13 }}>
-                    Net P/L: <span style={{ color: filteredOptions.reduce((s, o) => s + o.netPL, 0) >= 0 ? "#34d399" : "#f87171", fontWeight: 600 }}>
-                      {fmt(filteredOptions.reduce((s, o) => s + o.netPL, 0))}
+                    Net P/L: <span style={{ color: hideAmounts ? "#64748b" : filteredOptions.reduce((s, o) => s + o.netPL, 0) >= 0 ? "#34d399" : "#f87171", fontWeight: 600 }}>
+                      {mask(fmt(filteredOptions.reduce((s, o) => s + o.netPL, 0)))}
                     </span>
                   </div>
                 </div>
