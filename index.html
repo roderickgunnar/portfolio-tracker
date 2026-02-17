@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0a0e27" />
+  <title>Portfolio Tracker</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0e27;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    #root { min-height: 100vh; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    select:focus { outline: 2px solid #6366f1; }
+
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+      .stat-cards { flex-direction: column !important; }
+      .stat-cards > div { min-width: unset !important; }
+      .charts-grid { grid-template-columns: 1fr !important; }
+      .header-row { flex-direction: column !important; gap: 12px !important; align-items: flex-start !important; }
+      .filter-row { flex-direction: column !important; gap: 8px !important; }
+      .tab-nav { overflow-x: auto !important; flex-wrap: nowrap !important; }
+      .main-wrap { padding: 16px !important; }
+      .pie-inner { flex-direction: column !important; }
+      .pie-inner > div:first-child { width: 100% !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js');
+      });
+    }
+  </script>
+
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <script crossorigin src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.js"></script>
+
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+    const { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } = Recharts;
+    const { TrendingUp, TrendingDown, DollarSign, BarChart3, Activity, ChevronDown, ArrowUpRight, ArrowDownRight } = lucideReact;
+
+    // ─── Raw Data ────────────────────────────────────────────────────────────────
+
+    const ACCOUNTS = {
+      "All Accounts": {
+        totalValue: 184815.78, costBasis: 210332.14, unrealizedGL: -25516.36, unrealizedPct: -0.1213,
+        realizedSTGL: 21596.34, realizedLTGL: 0, totalRealizedGL: 21596.34, totalDividends: 116.30,
+        netOptionsPremium: 4069.86, totalReturn: 266.13,
+      },
+      "Vanguard 401K": {
+        totalValue: 7486.71, costBasis: 40378.09, unrealizedGL: -32891.38, unrealizedPct: -0.8146,
+        realizedSTGL: 0, realizedLTGL: 0, totalRealizedGL: 0, totalDividends: 0,
+        netOptionsPremium: 0, totalReturn: -32891.38,
+      },
+      "Vanguard Brokerage": {
+        totalValue: 18676.21, costBasis: 17580.99, unrealizedGL: 1095.21, unrealizedPct: 0.0623,
+        realizedSTGL: 2164.14, realizedLTGL: 0, totalRealizedGL: 2164.14, totalDividends: 68.56,
+        netOptionsPremium: 0, totalReturn: 3327.91,
+      },
+      "Schwab PCRA Trust": {
+        totalValue: 25961.25, costBasis: 26572.89, unrealizedGL: -611.64, unrealizedPct: -0.023,
+        realizedSTGL: -812.32, realizedLTGL: 0, totalRealizedGL: -812.32, totalDividends: 16.78,
+        netOptionsPremium: 0, totalReturn: -1407.18,
+      },
+      "Schwab PCRA Trust 2": {
+        totalValue: 7261.80, costBasis: 7474.00, unrealizedGL: -212.20, unrealizedPct: -0.0284,
+        realizedSTGL: 0, realizedLTGL: 0, totalRealizedGL: 0, totalDividends: 0,
+        netOptionsPremium: 0, totalReturn: -212.20,
+      },
+      "Schwab Individual": {
+        totalValue: 26458.96, costBasis: 21883.88, unrealizedGL: 4575.09, unrealizedPct: 0.2091,
+        realizedSTGL: 2395.27, realizedLTGL: 0, totalRealizedGL: 2395.27, totalDividends: 1.33,
+        netOptionsPremium: 715.68, totalReturn: 7687.37,
+      },
+      "Schwab Rollover IRA": {
+        totalValue: 98970.85, costBasis: 96442.29, unrealizedGL: 2528.56, unrealizedPct: 0.0262,
+        realizedSTGL: 17849.25, realizedLTGL: 0, totalRealizedGL: 17849.25, totalDividends: 29.63,
+        netOptionsPremium: 3354.18, totalReturn: 23761.62,
+      },
+    };
+
+    const HOLDINGS_BY_ACCOUNT = {
+      "All Accounts": [
+        { symbol: "GOOGL", shares: 183.017, avgCost: 321.91, price: 311.78, marketValue: 57061.04, costBasis: 58915.10, unrealizedGL: -1854.06, unrealizedPct: -0.0315, realizedGL: 1584.45, dividends: 16.80 },
+        { symbol: "BE", shares: 215, avgCost: 157.20, price: 154.25, marketValue: 33163.75, costBasis: 33797.00, unrealizedGL: -633.25, unrealizedPct: -0.0187, realizedGL: 4048.92, dividends: 0 },
+        { symbol: "GOOG", shares: 106, avgCost: 244.29, price: 312.39, marketValue: 33113.34, costBasis: 25895.24, unrealizedGL: 7218.10, unrealizedPct: 0.2787, realizedGL: 0, dividends: 22.26 },
+        { symbol: "PLTR", shares: 107, avgCost: 99.40, price: 134.89, marketValue: 14433.05, costBasis: 10635.45, unrealizedGL: 3797.60, unrealizedPct: 0.3571, realizedGL: 585.42, dividends: 0 },
+        { symbol: "NVDA", shares: 48.00, avgCost: 177.09, price: 190.40, marketValue: 9139.87, costBasis: 8501.05, unrealizedGL: 638.82, unrealizedPct: 0.0751, realizedGL: 774.15, dividends: 0.68 },
+        { symbol: "META", shares: 10, avgCost: 665.50, price: 667.78, marketValue: 6677.75, costBasis: 6655.00, unrealizedGL: 22.75, unrealizedPct: 0.0034, realizedGL: 13.34, dividends: 0 },
+        { symbol: "TSLA", shares: 15, avgCost: 424.92, price: 427.05, marketValue: 6405.76, costBasis: 6373.74, unrealizedGL: 32.02, unrealizedPct: 0.005, realizedGL: 324.21, dividends: 0 },
+        { symbol: "INTC", shares: 100, avgCost: 53.51, price: 48.11, marketValue: 4810.85, costBasis: 5351.23, unrealizedGL: -540.38, unrealizedPct: -0.101, realizedGL: 0, dividends: 0 },
+        { symbol: "MU", shares: 10, avgCost: 415.00, price: 414.40, marketValue: 4144.00, costBasis: 4150.00, unrealizedGL: -6.00, unrealizedPct: -0.0014, realizedGL: 0, dividends: 0 },
+        { symbol: "HOOD", shares: 50, avgCost: 95.88, price: 77.69, marketValue: 3884.50, costBasis: 4794.00, unrealizedGL: -909.50, unrealizedPct: -0.1897, realizedGL: 0, dividends: 0 },
+        { symbol: "AAPL", shares: 10, avgCost: 269.00, price: 275.55, marketValue: 2755.50, costBasis: 2690.00, unrealizedGL: 65.50, unrealizedPct: 0.0244, realizedGL: 0, dividends: 0 },
+        { symbol: "BE (Indiv)", shares: 15, avgCost: 115.07, price: 154.25, marketValue: 2313.75, costBasis: 1726.00, unrealizedGL: 587.75, unrealizedPct: 0.3405, realizedGL: 0, dividends: 0 },
+        { symbol: "RDW", shares: 100, avgCost: 13.67, price: 8.93, marketValue: 893.00, costBasis: 1366.74, unrealizedGL: -473.74, unrealizedPct: -0.3466, realizedGL: 0, dividends: 0 },
+        { symbol: "TSLA (Indiv)", shares: 2, avgCost: 448.55, price: 427.05, marketValue: 854.10, costBasis: 897.10, unrealizedGL: -43.00, unrealizedPct: -0.0479, realizedGL: 0, dividends: 0 },
+        { symbol: "VGT", shares: 1.002, avgCost: 719.58, price: 748.17, marketValue: 749.67, costBasis: 721.02, unrealizedGL: 28.65, unrealizedPct: 0.0397, realizedGL: 0, dividends: 1.62 },
+        { symbol: "CRSP", shares: 2, avgCost: 54.24, price: 48.50, marketValue: 97.00, costBasis: 108.48, unrealizedGL: -11.48, unrealizedPct: -0.1058, realizedGL: 0, dividends: 0 },
+      ],
+      "Vanguard 401K": [
+        { symbol: "Target 2035", shares: 197.836, avgCost: 27.79, price: 28.35, marketValue: 5608.65, costBasis: 5498.85, unrealizedGL: 109.80, unrealizedPct: 0.02, realizedGL: 0, dividends: 0 },
+        { symbol: "Target 2040", shares: 36.207, avgCost: 50.72, price: 51.87, marketValue: 1878.06, costBasis: 1836.28, unrealizedGL: 41.78, unrealizedPct: 0.0228, realizedGL: 0, dividends: 0 },
+      ],
+      "Vanguard Brokerage": [
+        { symbol: "TSLA", shares: 13, avgCost: 421.28, price: 427.05, marketValue: 5551.66, costBasis: 5476.64, unrealizedGL: 75.02, unrealizedPct: 0.0137, realizedGL: 324.21, dividends: 0 },
+        { symbol: "GOOGL", shares: 15.017, avgCost: 201.36, price: 311.78, marketValue: 4682.00, costBasis: 3023.85, unrealizedGL: 1658.15, unrealizedPct: 0.5484, realizedGL: 0, dividends: 4.83 },
+        { symbol: "HOOD", shares: 50, avgCost: 95.88, price: 77.69, marketValue: 3884.50, costBasis: 4794.00, unrealizedGL: -909.50, unrealizedPct: -0.1897, realizedGL: 0, dividends: 0 },
+        { symbol: "NVDA", shares: 20.002, avgCost: 178.26, price: 190.40, marketValue: 3808.38, costBasis: 3565.48, unrealizedGL: 242.90, unrealizedPct: 0.0681, realizedGL: 774.15, dividends: 0.40 },
+        { symbol: "VGT", shares: 1.002, avgCost: 719.58, price: 748.17, marketValue: 749.67, costBasis: 721.02, unrealizedGL: 28.65, unrealizedPct: 0.0397, realizedGL: 0, dividends: 1.62 },
+      ],
+      "Schwab PCRA Trust": [
+        { symbol: "GOOGL", shares: 47, avgCost: 329.68, price: 311.78, marketValue: 14653.66, costBasis: 15495.15, unrealizedGL: -841.49, unrealizedPct: -0.0543, realizedGL: -904.03, dividends: 10.92 },
+        { symbol: "META", shares: 10, avgCost: 665.50, price: 667.78, marketValue: 6677.75, costBasis: 6655.00, unrealizedGL: 22.75, unrealizedPct: 0.0034, realizedGL: 0, dividends: 0 },
+        { symbol: "AAPL", shares: 10, avgCost: 269.00, price: 275.55, marketValue: 2755.50, costBasis: 2690.00, unrealizedGL: 65.50, unrealizedPct: 0.0244, realizedGL: 0, dividends: 0 },
+        { symbol: "GOOG", shares: 6, avgCost: 288.79, price: 312.39, marketValue: 1874.34, costBasis: 1732.74, unrealizedGL: 141.60, unrealizedPct: 0.0817, realizedGL: 0, dividends: 1.26 },
+      ],
+      "Schwab PCRA Trust 2": [
+        { symbol: "MU", shares: 10, avgCost: 415.00, price: 414.40, marketValue: 4144.00, costBasis: 4150.00, unrealizedGL: -6.00, unrealizedPct: -0.0014, realizedGL: 0, dividends: 0 },
+        { symbol: "GOOGL", shares: 10, avgCost: 332.40, price: 311.78, marketValue: 3117.80, costBasis: 3324.00, unrealizedGL: -206.20, unrealizedPct: -0.0620, realizedGL: 0, dividends: 0 },
+      ],
+      "Schwab Individual": [
+        { symbol: "PLTR", shares: 107, avgCost: 99.40, price: 134.89, marketValue: 14433.05, costBasis: 10635.45, unrealizedGL: 3797.60, unrealizedPct: 0.3571, realizedGL: 759.64, dividends: 0 },
+        { symbol: "NVDA", shares: 28.002, avgCost: 176.26, price: 190.40, marketValue: 5331.49, costBasis: 4935.57, unrealizedGL: 395.92, unrealizedPct: 0.0802, realizedGL: 0, dividends: 0.28 },
+        { symbol: "GOOGL", shares: 11, avgCost: 325.57, price: 311.78, marketValue: 3429.58, costBasis: 3581.28, unrealizedGL: -151.70, unrealizedPct: -0.0424, realizedGL: 0, dividends: 1.05 },
+        { symbol: "BE", shares: 15, avgCost: 115.07, price: 154.25, marketValue: 2313.75, costBasis: 1726.00, unrealizedGL: 587.75, unrealizedPct: 0.3405, realizedGL: 0, dividends: 0 },
+        { symbol: "TSLA", shares: 2, avgCost: 448.55, price: 427.05, marketValue: 854.10, costBasis: 897.10, unrealizedGL: -43.00, unrealizedPct: -0.0479, realizedGL: 0, dividends: 0 },
+        { symbol: "CRSP", shares: 2, avgCost: 54.24, price: 48.50, marketValue: 97.00, costBasis: 108.48, unrealizedGL: -11.48, unrealizedPct: -0.1058, realizedGL: 0, dividends: 0 },
+      ],
+      "Schwab Rollover IRA": [
+        { symbol: "GOOG", shares: 100, avgCost: 241.63, price: 312.39, marketValue: 31239.00, costBasis: 24162.50, unrealizedGL: 7076.50, unrealizedPct: 0.2929, realizedGL: 0, dividends: 21.00 },
+        { symbol: "GOOGL", shares: 100, avgCost: 334.91, price: 311.78, marketValue: 31178.00, costBasis: 33490.82, unrealizedGL: -2312.82, unrealizedPct: -0.069, realizedGL: 2488.48, dividends: 0 },
+        { symbol: "BE", shares: 200, avgCost: 160.36, price: 154.25, marketValue: 30850.00, costBasis: 32071.00, unrealizedGL: -1221.00, unrealizedPct: -0.0381, realizedGL: 4048.92, dividends: 0 },
+        { symbol: "INTC", shares: 100, avgCost: 53.51, price: 48.11, marketValue: 4810.85, costBasis: 5351.23, unrealizedGL: -540.38, unrealizedPct: -0.101, realizedGL: 0, dividends: 0 },
+        { symbol: "RDW", shares: 100, avgCost: 13.67, price: 8.93, marketValue: 893.00, costBasis: 1366.74, unrealizedGL: -473.74, unrealizedPct: -0.3466, realizedGL: 0, dividends: 0 },
+      ],
+    };
+
+    const OPTIONS_ACTIVITY = [
+      { option: "PLTR 01/30/2026 $185 C", status: "Expired", premium: 449.34, closeCost: 0, netPL: 449.34, account: "Schwab Individual" },
+      { option: "PLTR 02/27/2026 $175 C", status: "OPEN", premium: 266.34, closeCost: 0, netPL: 266.34, account: "Schwab Individual" },
+      { option: "MU 12/19/2025 $220 C", status: "Buy to Close", premium: 1530.34, closeCost: 3310.66, netPL: -1780.32, account: "Schwab Rollover IRA" },
+      { option: "JNJ 11/21/2025 $197.50 C", status: "Buy to Close", premium: 180.34, closeCost: 78.66, netPL: 101.68, account: "Schwab Rollover IRA" },
+      { option: "MU 11/28/2025 $245 C", status: "Buy to Close", premium: 1124.34, closeCost: 1245.66, netPL: -121.32, account: "Schwab Rollover IRA" },
+      { option: "GOOG 11/21/2025 $255 C", status: "Buy to Close", premium: 1159.34, closeCost: 3710.66, netPL: -2551.32, account: "Schwab Rollover IRA" },
+      { option: "PLTR 11/21/2025 $195 C", status: "Buy to Close", premium: 999.34, closeCost: 74.66, netPL: 924.68, account: "Schwab Rollover IRA" },
+      { option: "PANW 11/28/2025 $222.50 C", status: "Expired", premium: 694.34, closeCost: 0, netPL: 694.34, account: "Schwab Rollover IRA" },
+      { option: "PANW 01/09/2026 $220 C", status: "Buy to Close", premium: 100.34, closeCost: 75.66, netPL: 24.68, account: "Schwab Rollover IRA" },
+      { option: "GOOG 12/26/2025 $325 C", status: "Buy to Close", premium: 999.34, closeCost: 690.66, netPL: 308.68, account: "Schwab Rollover IRA" },
+      { option: "PLTR 12/19/2025 $185 C", status: "Assigned", premium: 230.34, closeCost: 0, netPL: 230.34, account: "Schwab Rollover IRA" },
+      { option: "MU 12/26/2025 $235 C", status: "Assigned", premium: 1469.34, closeCost: 0, netPL: 1469.34, account: "Schwab Rollover IRA" },
+      { option: "GOOG 01/23/2026 $320 C", status: "Buy to Close", premium: 719.34, closeCost: 1060.66, netPL: -341.32, account: "Schwab Rollover IRA" },
+      { option: "GOOG 01/30/2026 $340 C", status: "Expired", premium: 314.34, closeCost: 0, netPL: 314.34, account: "Schwab Rollover IRA" },
+      { option: "BE 01/30/2026 $150 C", status: "Assigned", premium: 394.34, closeCost: 0, netPL: 394.34, account: "Schwab Rollover IRA" },
+      { option: "GOOGL 01/30/2026 $337.50 C", status: "Assigned", premium: 339.34, closeCost: 0, netPL: 339.34, account: "Schwab Rollover IRA" },
+      { option: "BE 02/06/2026 $172.50 C", status: "Expired", premium: 1084.34, closeCost: 0, netPL: 1084.34, account: "Schwab Rollover IRA" },
+      { option: "BE 02/06/2026 $170 C", status: "Expired", premium: 1207.34, closeCost: 0, netPL: 1207.34, account: "Schwab Rollover IRA" },
+      { option: "GOOG 02/06/2026 $345 C", status: "Expired", premium: 737.34, closeCost: 0, netPL: 737.34, account: "Schwab Rollover IRA" },
+      { option: "INTC 02/13/2026 $54 C", status: "OPEN", premium: 22.34, closeCost: 0, netPL: 22.34, account: "Schwab Rollover IRA" },
+      { option: "BE 02/13/2026 $170 C", status: "OPEN", premium: 295.34, closeCost: 0, netPL: 295.34, account: "Schwab Rollover IRA" },
+    ];
+
+    const TRANSACTIONS = [
+      { date: "2026-02-09", account: "Schwab Rollover IRA", category: "OPTIONS", action: "Sell to Open", symbol: "BE", amount: 295.34 },
+      { date: "2026-02-06", account: "Vanguard 401K", category: "CONTRIBUTION", action: "Contribution", symbol: "Target 2035", amount: 765.86 },
+      { date: "2026-02-06", account: "Vanguard 401K", category: "CONTRIBUTION", action: "Contribution", symbol: "Target 2040", amount: 255.29 },
+      { date: "2026-02-06", account: "Schwab Individual", category: "BUY", action: "Buy", symbol: "PLTR", amount: -946.68 },
+      { date: "2026-02-04", account: "Schwab Individual", category: "CASH_MGMT", action: "Transfer", symbol: "Cash", amount: 750.00 },
+      { date: "2026-02-04", account: "Schwab Rollover IRA", category: "BUY", action: "Buy", symbol: "GOOGL", amount: -33490.82 },
+      { date: "2026-02-03", account: "Vanguard Brokerage", category: "SELL", action: "Sell", symbol: "RIVN", amount: 28.01 },
+      { date: "2026-02-03", account: "Schwab PCRA Trust", category: "BUY", action: "Buy", symbol: "GOOGL", amount: -1700.85 },
+      { date: "2026-02-03", account: "Schwab Rollover IRA", category: "OPTIONS", action: "Sell to Open", symbol: "BE $172.50 C", amount: 1084.34 },
+      { date: "2026-02-03", account: "Schwab Rollover IRA", category: "OPTIONS", action: "Sell to Open", symbol: "BE $170 C", amount: 1207.34 },
+      { date: "2026-02-03", account: "Schwab Rollover IRA", category: "BUY", action: "Buy", symbol: "BE", amount: -16411.00 },
+      { date: "2026-02-03", account: "Schwab Rollover IRA", category: "SELL", action: "Sell", symbol: "MU", amount: 41074.48 },
+      { date: "2026-02-02", account: "Vanguard Brokerage", category: "BUY", action: "Buy", symbol: "HOOD", amount: -4794.00 },
+      { date: "2026-02-02", account: "Vanguard Brokerage", category: "BUY", action: "Buy", symbol: "TSLA", amount: -5476.64 },
+      { date: "2026-01-31", account: "Schwab Rollover IRA", category: "BUY", action: "Buy", symbol: "GOOGL", amount: -33908.12 },
+      { date: "2026-01-31", account: "Schwab Rollover IRA", category: "SELL", action: "Sell", symbol: "MU", amount: 42074.98 },
+      { date: "2026-01-30", account: "Schwab Rollover IRA", category: "BUY", action: "Buy", symbol: "BE", amount: -14845.00 },
+      { date: "2026-01-27", account: "Schwab Rollover IRA", category: "OPTIONS", action: "Sell to Open", symbol: "GOOG $340 C", amount: 314.34 },
+      { date: "2026-01-24", account: "Schwab Individual", category: "BUY", action: "Buy", symbol: "PLTR", amount: -4038.75 },
+      { date: "2026-01-21", account: "Schwab Rollover IRA", category: "BUY", action: "Buy", symbol: "INTC", amount: -5351.23 },
+      { date: "2025-12-30", account: "Schwab Rollover IRA", category: "BUY", action: "Buy", symbol: "RDW", amount: -1366.74 },
+      { date: "2025-12-19", account: "Schwab Individual", category: "BUY", action: "Buy", symbol: "NVDA", amount: -2424.98 },
+      { date: "2025-11-25", account: "Schwab Individual", category: "BUY", action: "Buy", symbol: "AVGO", amount: -5135.74 },
+      { date: "2025-11-04", account: "Schwab Individual", category: "BUY", action: "Buy", symbol: "PLTR", amount: -5649.00 },
+      { date: "2025-10-15", account: "Schwab PCRA Trust", category: "BUY", action: "Buy", symbol: "META", amount: -6655.00 },
+      { date: "2025-10-01", account: "Vanguard Brokerage", category: "BUY", action: "Buy", symbol: "GOOGL", amount: -3023.85 },
+      { date: "2025-09-15", account: "Schwab Rollover IRA", category: "BUY", action: "Buy", symbol: "GOOG", amount: -24162.50 },
+    ];
+
+    const MONTHS = ["All", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const YEARS = ["All", "2025", "2026"];
+    const CATEGORIES = ["All", "BUY", "SELL", "OPTIONS", "CONTRIBUTION", "DIVIDEND", "CASH_MGMT"];
+    const PIE_COLORS = ["#6366f1", "#22d3ee", "#a78bfa", "#f472b6", "#34d399", "#fbbf24", "#fb923c", "#f87171", "#818cf8", "#2dd4bf", "#e879f9", "#facc15", "#4ade80", "#f97316", "#c084fc", "#38bdf8"];
+
+    // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+    const fmt = (n, decimals = 2) => {
+      if (n == null || isNaN(n)) return "$0.00";
+      const abs = Math.abs(n);
+      const s = abs >= 1000
+        ? "$" + abs.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+        : "$" + abs.toFixed(decimals);
+      return n < 0 ? "-" + s : s;
+    };
+    const fmtPct = (n) => (n * 100).toFixed(2) + "%";
+
+    // ─── Components ──────────────────────────────────────────────────────────────
+
+    function StatCard({ label, value, sub, positive, icon }) {
+      const Icon = icon;
+      return (
+        <div style={{
+          background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)",
+          borderRadius: 16, padding: "20px 24px",
+          border: "1px solid rgba(99,102,241,0.2)",
+          flex: 1, minWidth: 180,
+          position: "relative", overflow: "hidden",
+        }}>
+          <div style={{ position: "absolute", top: 16, right: 16, opacity: 0.15 }}>
+            {Icon && <Icon size={40} />}
+          </div>
+          <div style={{ fontSize: 12, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{label}</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: "#f1f5f9" }}>{value}</div>
+          {sub && (
+            <div style={{ fontSize: 13, marginTop: 4, color: positive === true ? "#34d399" : positive === false ? "#f87171" : "#94a3b8", display: "flex", alignItems: "center", gap: 4 }}>
+              {positive === true && <ArrowUpRight size={14} />}
+              {positive === false && <ArrowDownRight size={14} />}
+              {sub}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function Dropdown({ label, value, onChange, options }) {
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
+          <div style={{ position: "relative" }}>
+            <select
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              style={{
+                background: "#1e293b", color: "#e2e8f0", border: "1px solid #334155",
+                borderRadius: 8, padding: "8px 32px 8px 12px", fontSize: 13,
+                appearance: "none", cursor: "pointer", outline: "none", minWidth: 140,
+              }}
+            >
+              {options.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+            <ChevronDown size={14} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "#64748b" }} />
+          </div>
+        </div>
+      );
+    }
+
+    function SortableTable({ columns, data, defaultSort, defaultDir }) {
+      const [sortCol, setSortCol] = useState(defaultSort || columns[0].key);
+      const [sortDir, setSortDir] = useState(defaultDir || "desc");
+
+      const sorted = useMemo(() => {
+        return [...data].sort((a, b) => {
+          const va = a[sortCol], vb = b[sortCol];
+          if (typeof va === "number" && typeof vb === "number") return sortDir === "asc" ? va - vb : vb - va;
+          return sortDir === "asc" ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+        });
+      }, [data, sortCol, sortDir]);
+
+      const toggle = (key) => {
+        if (sortCol === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+        else { setSortCol(key); setSortDir("desc"); }
+      };
+
+      return (
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr>
+                {columns.map((c) => (
+                  <th key={c.key} onClick={() => toggle(c.key)}
+                    style={{
+                      textAlign: c.align || "left", padding: "10px 12px",
+                      color: sortCol === c.key ? "#818cf8" : "#64748b",
+                      cursor: "pointer", borderBottom: "1px solid #1e293b",
+                      fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5,
+                      whiteSpace: "nowrap", userSelect: "none",
+                    }}>
+                    {c.label} {sortCol === c.key ? (sortDir === "asc" ? "\u25B2" : "\u25BC") : ""}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((row, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid #0f172a" }}>
+                  {columns.map((c) => (
+                    <td key={c.key} style={{
+                      padding: "10px 12px", textAlign: c.align || "left",
+                      color: c.color ? c.color(row[c.key], row) : "#cbd5e1",
+                      fontWeight: c.bold ? 600 : 400, whiteSpace: "nowrap",
+                      background: i % 2 === 0 ? "transparent" : "rgba(15,23,42,0.3)",
+                    }}>
+                      {c.render ? c.render(row[c.key], row) : row[c.key]}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    // ─── Main Dashboard ──────────────────────────────────────────────────────────
+
+    function PortfolioDashboard() {
+      const [selectedAccount, setSelectedAccount] = useState("All Accounts");
+      const [selectedYear, setSelectedYear] = useState("All");
+      const [selectedMonth, setSelectedMonth] = useState("All");
+      const [selectedCategory, setSelectedCategory] = useState("All");
+      const [activeTab, setActiveTab] = useState("holdings");
+
+      const accountData = ACCOUNTS[selectedAccount];
+      const holdings = HOLDINGS_BY_ACCOUNT[selectedAccount] || [];
+
+      const filteredTx = useMemo(() => {
+        return TRANSACTIONS.filter((t) => {
+          if (selectedAccount !== "All Accounts" && t.account !== selectedAccount) return false;
+          if (selectedYear !== "All" && !t.date.startsWith(selectedYear)) return false;
+          if (selectedMonth !== "All") {
+            const m = parseInt(t.date.split("-")[1]);
+            if (m !== MONTHS.indexOf(selectedMonth)) return false;
+          }
+          if (selectedCategory !== "All" && t.category !== selectedCategory) return false;
+          return true;
+        });
+      }, [selectedAccount, selectedYear, selectedMonth, selectedCategory]);
+
+      const filteredOptions = useMemo(() => {
+        return OPTIONS_ACTIVITY.filter((o) => {
+          if (selectedAccount !== "All Accounts" && o.account !== selectedAccount) return false;
+          return true;
+        });
+      }, [selectedAccount]);
+
+      const pieData = useMemo(() => {
+        return holdings.map((h) => ({ name: h.symbol, value: h.marketValue })).sort((a, b) => b.value - a.value);
+      }, [holdings]);
+
+      const accountBarData = useMemo(() => {
+        return Object.entries(ACCOUNTS).filter(([k]) => k !== "All Accounts").map(([name, d]) => ({
+          name: name.replace("Schwab ", "S. ").replace("Vanguard ", "V. "),
+          fullName: name, value: d.totalValue, unrealized: d.unrealizedGL, realized: d.totalRealizedGL,
+        }));
+      }, []);
+
+      const optionsByMonth = useMemo(() => {
+        const map = {};
+        OPTIONS_ACTIVITY.forEach((o) => {
+          const parts = o.option.split(" ");
+          const dateStr = parts[1];
+          const [mm, dd, yyyy] = dateStr.split("/");
+          const key = `${yyyy}-${mm}`;
+          if (!map[key]) map[key] = { month: key, profit: 0, loss: 0 };
+          if (o.netPL >= 0) map[key].profit += o.netPL;
+          else map[key].loss += o.netPL;
+        });
+        return Object.values(map).sort((a, b) => a.month.localeCompare(b.month));
+      }, []);
+
+      const incomeData = [
+        { name: "Realized G/L", value: accountData.totalRealizedGL },
+        { name: "Options Premium", value: accountData.netOptionsPremium },
+        { name: "Dividends", value: accountData.totalDividends },
+      ];
+      const totalIncome = accountData.totalRealizedGL + accountData.netOptionsPremium + accountData.totalDividends;
+
+      const holdingsColumns = [
+        { key: "symbol", label: "Symbol", bold: true, color: () => "#e2e8f0" },
+        { key: "shares", label: "Shares", align: "right", render: (v) => v.toFixed(2) },
+        { key: "avgCost", label: "Avg Cost", align: "right", render: (v) => fmt(v) },
+        { key: "price", label: "Price", align: "right", render: (v) => fmt(v) },
+        { key: "marketValue", label: "Mkt Value", align: "right", render: (v) => fmt(v) },
+        { key: "unrealizedGL", label: "Unrealized", align: "right", render: (v) => fmt(v), color: (v) => v >= 0 ? "#34d399" : "#f87171" },
+        { key: "unrealizedPct", label: "Unreal %", align: "right", render: (v) => fmtPct(v), color: (v) => v >= 0 ? "#34d399" : "#f87171" },
+        { key: "realizedGL", label: "Realized", align: "right", render: (v) => fmt(v), color: (v) => v > 0 ? "#34d399" : v < 0 ? "#f87171" : "#64748b" },
+      ];
+
+      const txColumns = [
+        { key: "date", label: "Date", color: () => "#e2e8f0" },
+        { key: "account", label: "Account" },
+        { key: "action", label: "Action", color: (v) => v === "Buy" ? "#818cf8" : v === "Sell" ? "#fbbf24" : v.includes("Open") ? "#a78bfa" : "#cbd5e1" },
+        { key: "symbol", label: "Symbol", bold: true, color: () => "#e2e8f0" },
+        { key: "amount", label: "Amount", align: "right", render: (v) => fmt(v), color: (v) => v >= 0 ? "#34d399" : "#f87171" },
+      ];
+
+      const optionsColumns = [
+        { key: "option", label: "Contract", bold: true, color: () => "#e2e8f0" },
+        {
+          key: "status", label: "Status",
+          render: (v) => (
+            <span style={{
+              padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+              background: v === "OPEN" ? "rgba(99,102,241,0.2)" : v === "Expired" ? "rgba(100,116,139,0.2)" : v === "Assigned" ? "rgba(251,191,36,0.2)" : "rgba(244,114,182,0.2)",
+              color: v === "OPEN" ? "#818cf8" : v === "Expired" ? "#94a3b8" : v === "Assigned" ? "#fbbf24" : "#f472b6",
+            }}>{v}</span>
+          ),
+        },
+        { key: "premium", label: "Premium", align: "right", render: (v) => fmt(v), color: () => "#34d399" },
+        { key: "closeCost", label: "Close Cost", align: "right", render: (v) => v > 0 ? fmt(v) : "\u2014", color: (v) => v > 0 ? "#f87171" : "#64748b" },
+        { key: "netPL", label: "Net P/L", align: "right", render: (v) => fmt(v), color: (v) => v >= 0 ? "#34d399" : "#f87171" },
+        { key: "account", label: "Account" },
+      ];
+
+      const tabs = [
+        { id: "holdings", label: "Holdings" },
+        { id: "transactions", label: "Transactions" },
+        { id: "options", label: "Options" },
+      ];
+
+      const customTooltip = ({ active, payload }) => {
+        if (!active || !payload?.length) return null;
+        const d = payload[0].payload;
+        return (
+          <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "10px 14px", fontSize: 12 }}>
+            <div style={{ color: "#e2e8f0", fontWeight: 600 }}>{d.name}</div>
+            <div style={{ color: "#818cf8" }}>{fmt(d.value)}</div>
+            <div style={{ color: "#64748b" }}>{((d.value / accountData.totalValue) * 100).toFixed(1)}% of portfolio</div>
+          </div>
+        );
+      };
+
+      return (
+        <div className="main-wrap" style={{
+          background: "linear-gradient(180deg, #0a0e27 0%, #0f172a 30%, #0c1220 100%)",
+          minHeight: "100vh", color: "#cbd5e1",
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          padding: "24px 32px",
+        }}>
+          {/* Header */}
+          <div className="header-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: "#f1f5f9", display: "flex", alignItems: "center", gap: 10 }}>
+                <Activity size={28} color="#818cf8" /> Portfolio Tracker
+              </h1>
+              <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Last updated: Feb 12, 2026</div>
+            </div>
+            <Dropdown label="Account" value={selectedAccount} onChange={setSelectedAccount} options={Object.keys(ACCOUNTS)} />
+          </div>
+
+          {/* Stat Cards */}
+          <div className="stat-cards" style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
+            <StatCard label="Total Value" value={fmt(accountData.totalValue)} icon={DollarSign} />
+            <StatCard label="Unrealized G/L" value={fmt(accountData.unrealizedGL)} sub={fmtPct(accountData.unrealizedPct)} positive={accountData.unrealizedGL >= 0} icon={TrendingUp} />
+            <StatCard label="Realized G/L" value={fmt(accountData.totalRealizedGL)} sub={`Short-term: ${fmt(accountData.realizedSTGL)}`} positive={accountData.totalRealizedGL >= 0} icon={BarChart3} />
+            <StatCard label="Total Income" value={fmt(totalIncome)} sub={`Options: ${fmt(accountData.netOptionsPremium)} \u00B7 Div: ${fmt(accountData.totalDividends)}`} positive={totalIncome >= 0} icon={Activity} />
+          </div>
+
+          {/* Charts */}
+          <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 24 }}>
+            {/* Asset Allocation */}
+            <div style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)", borderRadius: 16, padding: 20, border: "1px solid rgba(99,102,241,0.15)" }}>
+              <h3 style={{ margin: "0 0 4px", fontSize: 14, color: "#94a3b8", fontWeight: 600 }}>Asset Allocation</h3>
+              <div className="pie-inner" style={{ display: "flex", alignItems: "center" }}>
+                <ResponsiveContainer width="55%" height={220}>
+                  <PieChart>
+                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value" strokeWidth={2} stroke="#0f172a">
+                      {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip content={customTooltip} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ flex: 1, fontSize: 11, lineHeight: 1.8 }}>
+                  {pieData.slice(0, 8).map((d, i) => (
+                    <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                      <span style={{ color: "#94a3b8" }}>{d.name}</span>
+                      <span style={{ marginLeft: "auto", color: "#e2e8f0", fontWeight: 500 }}>{((d.value / accountData.totalValue) * 100).toFixed(1)}%</span>
+                    </div>
+                  ))}
+                  {pieData.length > 8 && <div style={{ color: "#64748b", paddingLeft: 14 }}>+{pieData.length - 8} more</div>}
+                </div>
+              </div>
+            </div>
+
+            {/* Account Values */}
+            <div style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)", borderRadius: 16, padding: 20, border: "1px solid rgba(99,102,241,0.15)" }}>
+              <h3 style={{ margin: "0 0 12px", fontSize: 14, color: "#94a3b8", fontWeight: 600 }}>Account Values</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={accountBarData} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 12 }} formatter={(v) => [fmt(v), ""]} labelFormatter={(l, payload) => payload?.[0]?.payload?.fullName || l} />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                    {accountBarData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Income Summary */}
+            <div style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)", borderRadius: 16, padding: 20, border: "1px solid rgba(99,102,241,0.15)" }}>
+              <h3 style={{ margin: "0 0 4px", fontSize: 14, color: "#94a3b8", fontWeight: 600 }}>Income Summary</h3>
+              <div style={{ fontSize: 28, fontWeight: 700, color: totalIncome >= 0 ? "#34d399" : "#f87171", marginBottom: 16 }}>{fmt(totalIncome)}</div>
+              {incomeData.map((d, i) => {
+                const pct = totalIncome > 0 ? (d.value / totalIncome) * 100 : 0;
+                const colors = ["#6366f1", "#a78bfa", "#22d3ee"];
+                return (
+                  <div key={d.name} style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ color: "#94a3b8" }}>{d.name}</span>
+                      <span style={{ color: "#e2e8f0", fontWeight: 500 }}>{fmt(d.value)}</span>
+                    </div>
+                    <div style={{ height: 6, background: "#0f172a", borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${Math.max(pct, 0)}%`, background: colors[i], borderRadius: 3, transition: "width 0.5s ease" }} />
+                    </div>
+                  </div>
+                );
+              })}
+              {selectedAccount === "All Accounts" && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Options P/L by Month</div>
+                  <ResponsiveContainer width="100%" height={80}>
+                    <BarChart data={optionsByMonth} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                      <XAxis dataKey="month" tick={{ fill: "#475569", fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v) => v.split("-")[1] + "/" + v.split("-")[0].slice(2)} />
+                      <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 11 }} formatter={(v) => [fmt(v), ""]} />
+                      <Bar dataKey="profit" fill="#34d399" radius={[2, 2, 0, 0]} stackId="a" />
+                      <Bar dataKey="loss" fill="#f87171" radius={[0, 0, 2, 2]} stackId="a" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Tab Navigation */}
+          <div className="tab-nav" style={{ display: "flex", alignItems: "center", gap: 24, marginBottom: 16, borderBottom: "1px solid #1e293b", paddingBottom: 0, flexWrap: "wrap" }}>
+            {tabs.map((t) => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  color: activeTab === t.id ? "#818cf8" : "#64748b",
+                  fontSize: 14, fontWeight: 600, paddingBottom: 12,
+                  borderBottom: activeTab === t.id ? "2px solid #818cf8" : "2px solid transparent",
+                  transition: "all 0.2s", fontFamily: "inherit",
+                }}>
+                {t.label}
+                {t.id === "options" && (
+                  <span style={{ marginLeft: 6, padding: "1px 7px", borderRadius: 10, background: "rgba(99,102,241,0.15)", color: "#818cf8", fontSize: 11 }}>
+                    {filteredOptions.length}
+                  </span>
+                )}
+              </button>
+            ))}
+            {activeTab === "transactions" && (
+              <div className="filter-row" style={{ display: "flex", gap: 12, marginLeft: "auto" }}>
+                <Dropdown label="Year" value={selectedYear} onChange={setSelectedYear} options={YEARS} />
+                <Dropdown label="Month" value={selectedMonth} onChange={setSelectedMonth} options={MONTHS} />
+                <Dropdown label="Type" value={selectedCategory} onChange={setSelectedCategory} options={CATEGORIES} />
+              </div>
+            )}
+          </div>
+
+          {/* Table Content */}
+          <div style={{
+            background: "linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%)",
+            borderRadius: 16, padding: 20, border: "1px solid rgba(99,102,241,0.15)", minHeight: 300,
+          }}>
+            {activeTab === "holdings" && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ fontSize: 13, color: "#64748b" }}>{holdings.length} positions · Click headers to sort</div>
+                  <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                    Total: <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{fmt(accountData.totalValue)}</span>
+                    {" \u00B7 "}Cost: <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{fmt(accountData.costBasis)}</span>
+                  </div>
+                </div>
+                <SortableTable columns={holdingsColumns} data={holdings} defaultSort="marketValue" />
+              </>
+            )}
+            {activeTab === "transactions" && (
+              <>
+                <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>{filteredTx.length} transactions</div>
+                {filteredTx.length > 0 ? (
+                  <SortableTable columns={txColumns} data={filteredTx} defaultSort="date" />
+                ) : (
+                  <div style={{ textAlign: "center", padding: 40, color: "#475569" }}>No transactions match the selected filters.</div>
+                )}
+              </>
+            )}
+            {activeTab === "options" && (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, color: "#64748b" }}>{filteredOptions.length} contracts</div>
+                  <div style={{ fontSize: 13 }}>
+                    Net P/L: <span style={{ color: filteredOptions.reduce((s, o) => s + o.netPL, 0) >= 0 ? "#34d399" : "#f87171", fontWeight: 600 }}>
+                      {fmt(filteredOptions.reduce((s, o) => s + o.netPL, 0))}
+                    </span>
+                  </div>
+                </div>
+                <SortableTable columns={optionsColumns} data={filteredOptions} defaultSort="netPL" />
+              </>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div style={{ textAlign: "center", marginTop: 24, fontSize: 11, color: "#334155" }}>
+            Data sourced from Schwab & Vanguard · For informational purposes only
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<PortfolioDashboard />);
+  </script>
+</body>
+</html>
